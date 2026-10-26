@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "traffic"
+version = "0.1.0"
+description = "Forecast-driven traffic signal control on a 2x2 grid (quant case study, problem 1)"
+requires-python = ">=3.9"
+dependencies = ["numpy", "pandas", "scikit-learn==1.7.2", "scipy", "cvxpy", "matplotlib"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

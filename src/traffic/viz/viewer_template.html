@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Traffic Signals</title>
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --line:#2a313c; --text:#e6edf3; --muted:#8b949e; --accent:#4c9aff; --fixed:#f0a030; --smart:#3fd0a0; --bad:#e5484d; --belief:#b48cff; --truth:#c9d1d9; --sensor:#4c9aff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif; }
+  header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:10px 22px; align-items:center; }
+  h1 { font-size:16px; margin:0; font-weight:600; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; }
+  .tab { background:var(--panel); color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:6px 16px; font-weight:600; cursor:pointer; }
+  .tab.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .controls { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; padding:10px 20px 0; }
+  button#play { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:6px 14px; font-weight:600; cursor:pointer; }
+  label { color:var(--muted); display:flex; gap:6px; align-items:center; cursor:pointer; }
+  input[type=range] { accent-color: var(--accent); }
+  #scrub { width:min(520px, 90vw); }
+  #clock { font-variant-numeric:tabular-nums; min-width:70px; font-weight:600; }
+  .desc { padding:8px 20px 0; color:var(--muted); }
+  main { display:flex; flex-wrap:wrap; gap:14px; padding:12px 20px 8px; }
+  .panel { flex:1 1 380px; min-width:300px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px 12px; border-top:3px solid var(--line); }
+  .panel.fixed { border-top-color:var(--fixed); } .panel.smart { border-top-color:var(--smart); }
+  .panel h2 { margin:0 0 8px; font-size:14px; font-weight:600; display:flex; justify-content:space-between; gap:8px; }
+  .panel h2 .plan { color:var(--muted); font-weight:500; font-variant-numeric:tabular-nums; }
+  canvas { width:100%; height:auto; display:block; border-radius:6px; background:#0b0e13; }
+  .stats { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:8px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .stats b { color:var(--text); font-weight:600; }
+  .row { display:flex; flex-wrap:wrap; gap:14px; padding:6px 20px 24px; }
+  .card { flex:1 1 380px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .card h3 { margin:0 0 6px; font-size:13px; font-weight:600; }
+  .legend { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px; }
+  .legend i { display:inline-block; width:90px; height:8px; border-radius:4px; background:linear-gradient(90deg,hsl(0,85%,50%),hsl(60,85%,50%),hsl(120,85%,45%)); }
+  .key { display:flex; gap:14px; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .key span::before { content:""; display:inline-block; width:10px; height:3px; margin-right:6px; vertical-align:middle; }
+  .key .f::before { background:var(--fixed); } .key .s::before { background:var(--smart); }
+  .key .b::before { background:var(--belief); } .key .t::before { background:var(--truth); }
+  .key .c::before { background:#4a5260; height:8px; width:8px; border-radius:2px; } .key .d::before { background:repeating-linear-gradient(90deg,var(--muted) 0 4px,transparent 4px 7px); }
+  .sect { padding:4px 20px 0; color:var(--muted); font-size:13px; } .sect b { color:var(--text); font-weight:600; }
+  .chip { display:inline-block; width:9px; height:9px; border-radius:2px; margin:0 4px 0 2px; vertical-align:-1px; }
+  .sub { color:var(--muted); font-size:12px; margin:-2px 0 6px; }
+  .big { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .res { display:grid; grid-template-columns:auto 1fr 1fr; gap:4px 16px; align-items:baseline; font-variant-numeric:tabular-nums; }
+  .res .h { color:var(--muted); font-size:12px; } .good { color:var(--smart); } .badc { color:var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Smart traffic signals: forecast + optimiser vs tuned fixed timing</h1>
+  <div class="tabs" id="tabs"></div>
+</header>
+<div class="desc" id="desc"></div>
+<div class="controls">
+  <button id="play">Pause</button>
+  <label>Speed <input id="speed" type="range" min="1" max="16" value="4"> <span id="speedv">4x</span></label>
+  <input id="scrub" type="range" min="0" max="1" value="0" step="0.01">
+  <span id="clock">00:00</span>
+  <label><input id="qlabels" type="checkbox" checked> Cars per road</label>
+  <label><input id="est" type="checkbox" checked> <span class="chip" style="background:var(--belief)"></span>Controller's estimate</label>
+  <span class="legend">stopped <i></i> free flow</span>
+</div>
+<main id="panels"></main>
+<div class="row">
+  <div class="card"><h3>Average delay per car (seconds), by arrival time</h3><div class="key"><span class="f">fixed-time</span><span class="s">smart control</span></div><canvas id="ch1" width="720" height="200"></canvas></div>
+  <div class="card"><h3>Cars stopped in the network</h3><div class="key"><span class="f">fixed-time</span><span class="s">smart control</span></div><canvas id="ch2" width="720" height="200"></canvas></div>
+  <div class="card" id="result"></div>
+</div>
+<div class="sect"><b>Inside the smart controller.</b> It sees no cameras: only a counter on each of the 8 entry roads
+  (<span class="chip" style="background:var(--sensor)"></span>), the clock, the weather feed, its own signals and the incident feed.
+  It estimates the cars on every road with a queue model, forecasts arrivals for the next 15 minutes,
+  and re-solves the cycle and green splits every 60 s (each junction box shows its current green split, % of the cycle).</div>
+<div class="row">
+  <div class="card"><h3>Arrivals at the 8 entrances (cars per minute, all entrances)</h3>
+    <div class="key"><span class="c">counted</span><span class="b">forecast, 5 min ahead</span><span class="d">true demand (hidden)</span></div>
+    <canvas id="ch3" width="720" height="200"></canvas></div>
+  <div class="card"><h3>Cars in the network: the controller's estimate vs the truth</h3>
+    <div class="key"><span class="t">true (simulator)</span><span class="b">controller's estimate (from counts only)</span></div>
+    <canvas id="ch4" width="720" height="200"></canvas></div>
+  <div class="card"><h3>The optimiser's plan</h3>
+    <div class="key"><span class="s">cycle length (s)</span></div>
+    <canvas id="ch5" width="720" height="200"></canvas></div>
+</div>
+
+<script>
+const DATA = __DATA__;
+const { L, rows, cols, vlen, vmax, logDt } = DATA;
+const SLOT = DATA.slot || 7, ENTRIES = DATA.entries || [];
+const LEN = DATA.len;
+
+// ---- geometry ----
+const S = 260, BOX = 34, M = 0.9 * S, LINKPX = S - BOX, LANE = 6;
+const W = 2 * M + (cols - 1) * S, H = 2 * M + (rows - 1) * S;
+const DIR = [[0,-1],[1,0],[0,1],[-1,0]];
+const nLinks = rows * cols * 4;
+const pxPerM = LINKPX / L;
+const G = Array.from({ length: nLinks }, (_, l) => {
+  const i = Math.floor(l / 4), h = l % 4, r = Math.floor(i / cols), c = i % cols;
+  const cx = M + c * S, cy = M + r * S, d = DIR[h];
+  const end = [cx - d[0] * BOX / 2, cy - d[1] * BOX / 2];
+  const start = [end[0] - d[0] * LEN[l] * pxPerM, end[1] - d[1] * LEN[l] * pxPerM];
+  return { i, h, d, left: [d[1], -d[0]], start, end, cx, cy, len: LEN[l] };
+});
+function pointOn(g, pos) {
+  const k = pos * pxPerM;
+  return [g.start[0] + g.d[0] * k + g.left[0] * LANE, g.start[1] + g.d[1] * k + g.left[1] * LANE];
+}
+function buildBackground() {
+  const c = document.createElement('canvas'); c.width = W * 2; c.height = H * 2;
+  const x = c.getContext('2d'); x.scale(2, 2);
+  x.fillStyle = '#0b0e13'; x.fillRect(0, 0, W, H);
+  x.strokeStyle = '#262c35'; x.lineWidth = 30;
+  G.forEach(g => { x.beginPath(); x.moveTo(...g.start); x.lineTo(...g.end); x.stroke(); });
+  x.fillStyle = '#262c35';
+  for (let i = 0; i < rows * cols; i++) { const g = G[i * 4]; x.fillRect(g.cx - BOX/2, g.cy - BOX/2, BOX, BOX); }
+  x.strokeStyle = 'rgba(255,255,255,0.18)'; x.lineWidth = 1; x.setLineDash([6, 8]);
+  G.forEach(g => { x.beginPath(); x.moveTo(...g.start); x.lineTo(...g.end); x.stroke(); });
+  return c;
+}
+const BG = buildBackground();
+
+// ---- clip state ----
+let clip, smart = null, panels = [], nF = 0, ft = 0, playing = true, last = null;
+const host = document.getElementById('panels');
+const $ = id => document.getElementById(id);
+const hhmm = t => { const s = Math.floor(DATA.h0 * 3600 + t); return String(Math.floor(s / 3600) % 24).padStart(2, '0') + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+
+function loadClip(k) {
+  clip = DATA.clips[k]; ft = 0; playing = true; last = null; $('play').textContent = 'Pause';
+  document.querySelectorAll('.tab').forEach((b, i) => b.classList.toggle('on', i === k));
+  $('desc').textContent = clip.desc;
+  host.innerHTML = '';
+  panels = clip.panels;
+  panels.forEach((p, i) => {
+    const sec = document.createElement('section'); sec.className = 'panel ' + (p.plan ? 'smart' : 'fixed');
+    sec.innerHTML = `<h2><span>${p.name}</span><span class="plan"></span></h2><canvas></canvas><div class="stats"></div>`;
+    host.appendChild(sec);
+    p.cv = sec.querySelector('canvas'); p.cv.width = W * 2; p.cv.height = H * 2;
+    p.ctx = p.cv.getContext('2d'); p.ctx.scale(2, 2);
+    p.stats = sec.querySelector('.stats'); p.planEl = sec.querySelector('.plan'); p.pi = 0;
+    p.stopped = p.frames.map(f => { let n = 0; for (let j = 0; j < f.c.length; j += 4) if (f.c[j + 3] < 0.5) n++; return n; });
+    p.frames.forEach(f => { f.map = null; });
+    p.onroad = p.frames.map(f => f.c.length / 4);
+    if (p.frames[0].en) p.estTot = p.frames.map(f => f.en ? f.en.reduce((a, b) => a + b, 0) : null);
+    p.delayF = p.frames.map(f => { let b = null, bd = 1e9; for (const [tc, v] of p.dser) { const d = Math.abs(tc - f.t); if (d < bd && v !== null) { bd = d; b = v; } } return b === null ? 0 : b; });
+  });
+  nF = Math.min(...panels.map(p => p.frames.length));
+  smart = panels.find(p => p.plan) || null;
+  $('scrub').max = nF - 1;
+  renderResult(); render();
+}
+function renderResult() {
+  const [f, s] = panels, a = clip.avg;
+  const pct = (a1, b1) => { const d = 100 * (1 - b1 / a1); return `<span class="${d >= 0 ? 'good' : 'badc'}">${d >= 0 ? '-' : '+'}${Math.abs(d).toFixed(0)}%</span>`; };
+  let h = `<h3>Mean delay per car (seconds)</h3><div class="res"><span class="h"></span><span class="h">fixed-time</span><span class="h">smart control</span>`;
+  h += `<span class="h">This clip (one run)</span><span>${f.delay.toFixed(0)}</span><span><b>${s.delay.toFixed(0)}</b> ${pct(f.delay, s.delay)}</span>`;
+  if (a) h += `<span class="h">Whole scenario, ${a.n} held-out runs</span><span>${a.fixed.toFixed(0)}</span><span><b>${a.smart.toFixed(0)}</b> ${pct(a.fixed, a.smart)}</span>`;
+  h += `</div><div class="desc" style="padding:8px 0 0;font-size:12px">The clip is one random day. The scenario average is the fair comparison.</div>`;
+  $('result').innerHTML = h;
+}
+
+function carMap(f) {
+  if (!f.map) { f.map = new Map(); for (let k = 0; k < f.c.length; k += 4) f.map.set(f.c[k], k); }
+  return f.map;
+}
+
+function drawPanel(p, ft) {
+  const f0 = Math.floor(ft), f1 = Math.min(f0 + 1, nF - 1), a = ft - f0;
+  const A = p.frames[f0], B = p.frames[f1], x = p.ctx;
+  x.drawImage(BG, 0, 0, W, H);
+  const showQ = $('qlabels').checked, showE = $('est').checked && !!A.en;
+  const stopped = new Array(nLinks).fill(0), onLink = new Array(nLinks).fill(0);
+  for (let k = 0; k < A.c.length; k += 4) { onLink[A.c[k + 1]]++; if (A.c[k + 3] < 0.5) stopped[A.c[k + 1]]++; }
+  drawCounters(p, x, A, f0);
+  G.forEach(g => {
+    const green = !A.sw[g.i] && A.ph[g.i] === (g.h % 2);
+    x.strokeStyle = green ? '#2ecc71' : '#e5484d'; x.lineWidth = 3;
+    x.beginPath(); x.moveTo(...g.end); x.lineTo(g.end[0] + g.left[0] * 15, g.end[1] + g.left[1] * 15); x.stroke();
+  });
+  const mB = carMap(B), cl = vlen * pxPerM * 1.5, cw = 5.2;
+  for (let k = 0; k < A.c.length; k += 4) {
+    const vid = A.c[k], link = A.c[k + 1], v = A.c[k + 3];
+    let pos = A.c[k + 2];
+    const j = mB.get(vid);
+    if (j !== undefined && B.c[j + 1] === link) pos = pos + (B.c[j + 2] - pos) * a;
+    const g = G[link], pt = pointOn(g, pos);
+    x.save(); x.translate(pt[0], pt[1]); x.rotate(Math.atan2(g.d[1], g.d[0]));
+    x.fillStyle = `hsl(${Math.min(1, v / vmax) * 120},85%,52%)`;
+    x.fillRect(-cl, -cw / 2, cl, cw);
+    x.restore();
+  }
+  // accident marker
+  (clip.accidents || []).forEach(ac => {
+    if (A.t >= ac.start && A.t < ac.end) {
+      const g = G[ac.link], pt = pointOn(g, ac.pos * g.len), pulse = 0.5 + 0.5 * Math.sin(A.t * 4);
+      x.strokeStyle = `rgba(229,72,77,${0.25 + 0.5 * pulse})`; x.lineWidth = 3;
+      x.beginPath(); x.arc(pt[0], pt[1], 12 + 6 * pulse, 0, 6.283); x.stroke();
+      x.fillStyle = '#e5484d'; x.beginPath(); x.arc(pt[0], pt[1], 9, 0, 6.283); x.fill();
+      x.fillStyle = '#fff'; x.font = '700 13px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('!', pt[0], pt[1] + 1);
+      x.font = '600 11px system-ui'; x.fillStyle = '#ff9aa0'; x.fillText('road blocked', pt[0], pt[1] - 22);
+    }
+  });
+  if (showQ || showE) {
+    x.font = '600 11px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    G.forEach((g, l) => {
+      const bx = g.end[0] - g.d[0] * 16 + g.left[0] * 25, by = g.end[1] - g.d[1] * 16 + g.left[1] * 25;
+      if (showQ) { x.fillStyle = 'rgba(230,237,243,0.92)'; x.fillText(onLink[l], bx, by); }
+      if (showE) {                                  // the controller's estimate, just upstream of the true count
+        const o = showQ ? 15 : 0;
+        x.fillStyle = '#c9a8ff'; x.fillText(Math.round(A.en[l]), bx - g.d[0] * o, by - g.d[1] * o);
+      }
+    });
+  }
+  if (p.plan) drawSplits(p, x, A.t);
+  // rain: tint + falling streaks, intensity from the sim
+  const rn = A.rn + (B.rn - A.rn) * a;
+  if (rn > 0.02) {
+    x.fillStyle = `rgba(70,100,150,${0.28 * rn})`; x.fillRect(0, 0, W, H);
+    x.strokeStyle = `rgba(170,200,255,${0.25 + 0.4 * rn})`; x.lineWidth = 1; x.beginPath();
+    const n = Math.floor(260 * rn);
+    for (let i = 0; i < n; i++) {
+      const px = (i * 97.31) % W, py = ((i * 57.17) + ft * 14) % H;
+      x.moveTo(px, py); x.lineTo(px - 3, py + 9);
+    }
+    x.stroke();
+    x.fillStyle = '#9ec5ff'; x.font = '600 12px system-ui'; x.textAlign = 'left'; x.fillText('Rain ' + Math.round(rn * 100) + '%', 10, 16);
+  }
+  const tot = A.c.length / 4, st = stopped.reduce((s, v) => s + v, 0);
+  let est = '';
+  if (A.en) { const e = A.en.reduce((s, v) => s + v, 0); est = `<span>controller estimates <b style="color:var(--belief)">${Math.round(e)}</b> on road</span>`; }
+  p.stats.innerHTML = `<span>on road <b>${tot}</b></span>${est}<span>stopped <b>${st}</b></span><span>waiting to enter <b>${A.bf}</b></span><span>exited <b>${A.ex}</b></span>`;
+  if (p.plan) {
+    while (p.pi + 1 < p.plan.length && p.plan[p.pi + 1][0] <= A.t) p.pi++;
+    while (p.pi > 0 && p.plan[p.pi][0] > A.t) p.pi--;
+    const pl = p.plan[p.pi];
+    p.planEl.textContent = `plan: cycle ${pl[1].toFixed(0)} s, mean NS share ${(pl[2] * 100).toFixed(0)}%`;
+  } else p.planEl.textContent = 'fixed plan, same cycle all day';
+}
+
+// entry counters: drawn where each entry road comes into view (the counter itself is at the road's far end)
+function counterPos(g) {
+  const e = g.end, d = g.d;
+  const dist = d[0] > 0 ? e[0] : d[0] < 0 ? W - e[0] : d[1] > 0 ? e[1] : H - e[1];
+  return pointOn(g, g.len - (dist - 12) / pxPerM);
+}
+function drawCounters(p, x, A, f0) {
+  const back = Math.max(0, f0 - Math.round(60 / logDt)), P = p.frames[back];
+  ENTRIES.forEach((l, k) => {
+    const g = G[l], pt = counterPos(g);
+    x.save(); x.translate(pt[0], pt[1]); x.rotate(Math.atan2(g.d[1], g.d[0]));
+    x.fillStyle = '#4c9aff'; x.fillRect(-2, -9, 4, 18);
+    x.restore();
+    if (A.ec && P.ec && f0 > 0) {                 // cars counted over the last minute
+      const n = Math.round((A.ec[k] - P.ec[k]) * 60 / ((A.t - P.t) || 1));
+      const lx = pt[0] + g.left[0] * 24 + g.d[0] * 2, ly = pt[1] + g.left[1] * 24 + g.d[1] * 6;
+      x.font = '600 10px system-ui'; x.textAlign = g.d[0] > 0 ? 'left' : g.d[0] < 0 ? 'right' : 'center'; x.textBaseline = 'middle';
+      x.fillStyle = '#8fbaff'; x.fillText(n + '/min', lx, ly);
+    }
+  });
+}
+// the optimiser's current NS:EW split, written in each junction box
+function drawSplits(p, x, t) {
+  const pl = p.plan[p.pi];
+  if (!pl || !pl[3]) return;
+  x.font = '600 9px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = '#e6edf3';
+  pl[3].forEach((v, i) => { const g = G[i * 4], ns = Math.round(v * 100); x.fillText('NS ' + ns, g.cx, g.cy - 6); x.fillText('EW ' + (100 - ns), g.cx, g.cy + 6); });
+}
+
+function axes(x, w, h, pad, mx, unit) {
+  x.strokeStyle = '#2a313c'; x.fillStyle = '#8b949e'; x.font = '14px system-ui'; x.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) { const y = h - pad - (h - 2 * pad) * k / 4; x.beginPath(); x.moveTo(pad + 18, y); x.lineTo(w - 8, y); x.stroke(); x.textAlign = 'right'; x.fillText(Math.round(mx * k / 4), pad + 12, y + 4); }
+}
+function niceMax(v) {                            // axis top with 4 round gridline steps
+  const st = Math.max(5, v) * 1.05 / 4, e = Math.pow(10, Math.floor(Math.log10(st)));
+  return 4 * e * [1, 2, 2.5, 5, 10].find(k => k * e >= st);
+}
+
+// forecast vs counted arrivals, 5-minute windows, around the clip
+function drawForecast(id) {
+  const c = $(id), x = c.getContext('2d'), w = c.width, h = c.height, pad = 28;
+  x.clearRect(0, 0, w, h);
+  const fc = smart && smart.fc;
+  if (!fc || fc.length < 2) return;
+  const Wd = fc[1][0] - fc[0][0], byT = new Map(fc.map(r => [r[0], r]));
+  const win = [];                                   // window [s, s + Wd]: counted & true (logged at its end), forecast (logged at its start)
+  fc.forEach(r => { const s = r[0], end = byT.get(s + Wd); win.push({ s, f: r[3][0], n: end ? end[1] : null, tr: end ? end[2] : null }); });
+  const t0 = win[0].s, t1 = win[win.length - 1].s + Wd;
+  const mx = niceMax(Math.max(...win.map(v => Math.max(v.f, v.n || 0, v.tr || 0))));
+  const X = t => pad + 20 + (w - pad - 28) * (t - t0) / (t1 - t0), Y = v => h - pad - (h - 2 * pad) * v / mx;
+  x.fillStyle = 'rgba(255,255,255,0.05)'; x.fillRect(X(clip.t0), pad - 10, X(clip.t1) - X(clip.t0), h - 2 * pad + 10);
+  axes(x, w, h, pad, mx);
+  win.forEach(v => { if (v.n === null) return; const a = X(v.s) + 2, b = X(v.s + Wd) - 2; x.fillStyle = '#4a5260'; x.fillRect(a, Y(v.n), b - a, h - pad - Y(v.n)); });
+  const step = (key, col, dash, lw) => {
+    x.strokeStyle = col; x.lineWidth = lw; x.setLineDash(dash); x.beginPath(); let on = false;
+    win.forEach(v => { const y = v[key]; if (y === null) { on = false; return; } if (!on) { x.moveTo(X(v.s), Y(y)); on = true; } else x.lineTo(X(v.s), Y(y)); x.lineTo(X(v.s + Wd), Y(y)); });
+    x.stroke(); x.setLineDash([]);
+  };
+  step('tr', '#8b949e', [4, 3], 1.5);
+  step('f', '#b48cff', [], 2);
+  const tn = clip.t0 + ft * logDt;
+  x.strokeStyle = 'rgba(255,255,255,0.4)'; x.lineWidth = 1; x.beginPath(); x.moveTo(X(tn), pad - 10); x.lineTo(X(tn), h - pad); x.stroke();
+  x.fillStyle = '#8b949e'; x.font = '14px system-ui';
+  [t0, clip.t0, clip.t1, t1].forEach((t, i) => { x.textAlign = i === 0 ? 'left' : i === 3 ? 'right' : 'center'; x.fillText(hhmm(t).slice(0, 5), X(t), h - 8); });
+  x.textAlign = 'center'; x.fillText('this clip', (X(clip.t0) + X(clip.t1)) / 2, pad - 14);
+}
+// generic time series over the clip for the smart panel: list of [values, colour]
+function drawSeries(id, series, fixedMax) {
+  const c = $(id), x = c.getContext('2d'), w = c.width, h = c.height, pad = 28;
+  x.clearRect(0, 0, w, h);
+  if (!smart) return;
+  const mx = fixedMax || niceMax(Math.max(...series.map(([v]) => Math.max(...v.filter(z => z !== null)))));
+  axes(x, w, h, pad, mx);
+  const X = i => pad + 20 + (w - pad - 28) * i / (nF - 1), Y = v => h - pad - (h - 2 * pad) * v / mx, upto = Math.floor(ft);
+  series.forEach(([v, col]) => {
+    x.strokeStyle = col; x.lineWidth = 2; x.beginPath(); let on = false;
+    for (let i = 0; i <= upto; i++) { if (v[i] === null) continue; on ? x.lineTo(X(i), Y(v[i])) : x.moveTo(X(i), Y(v[i])); on = true; }
+    x.stroke();
+  });
+  x.strokeStyle = 'rgba(255,255,255,0.4)'; x.lineWidth = 1; x.beginPath(); x.moveTo(X(ft), pad - 10); x.lineTo(X(ft), h - pad); x.stroke();
+  x.fillStyle = '#8b949e'; x.font = '14px system-ui';
+  [0, 0.5, 1].forEach(f => { x.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center'; x.fillText(hhmm(clip.t0 + f * (nF - 1) * logDt).slice(0, 5), X(f * (nF - 1)), h - 8); });
+}
+function cycleSeries() {
+  if (smart.cyc) return smart.cyc;
+  let j = 0;
+  smart.cyc = smart.frames.slice(0, nF).map(f => { while (j + 1 < smart.plan.length && smart.plan[j + 1][0] <= f.t) j++; return smart.plan[j][1]; });
+  return smart.cyc;
+}
+
+function drawChart(id, key) {
+  const c = $(id), x = c.getContext('2d'), w = c.width, h = c.height, pad = 28;
+  x.clearRect(0, 0, w, h);
+  const vals = panels.map(p => key === 'stopped' ? p.stopped : p.delayF);
+  const mx = niceMax(Math.max(...vals.map(v => Math.max(...v))));
+  x.strokeStyle = '#2a313c'; x.fillStyle = '#8b949e'; x.font = '14px system-ui'; x.lineWidth = 1;
+  for (let k = 0; k <= 4; k++) { const y = h - pad - (h - 2 * pad) * k / 4; x.beginPath(); x.moveTo(pad + 18, y); x.lineTo(w - 8, y); x.stroke(); x.textAlign = 'right'; x.fillText(Math.round(mx * k / 4), pad + 12, y + 4); }
+  const X = i => pad + 20 + (w - pad - 28) * i / (nF - 1), Y = v => h - pad - (h - 2 * pad) * v / mx;
+  // accident / rain bands
+  (clip.accidents || []).forEach(ac => {
+    const a0 = Math.max(0, (ac.start - clip.t0) / logDt), a1 = Math.min(nF - 1, (ac.end - clip.t0) / logDt);
+    if (a1 > a0) { x.fillStyle = 'rgba(229,72,77,0.15)'; x.fillRect(X(a0), pad - 10, X(a1) - X(a0), h - 2 * pad + 10); }
+  });
+  panels.forEach((p, pi) => {
+    x.strokeStyle = p.plan ? '#3fd0a0' : '#f0a030'; x.lineWidth = 2; x.beginPath();
+    const upto = Math.floor(ft);
+    for (let i = 0; i <= upto; i++) { const v = vals[pi][i]; i ? x.lineTo(X(i), Y(v)) : x.moveTo(X(i), Y(v)); }
+    x.stroke();
+  });
+  x.strokeStyle = 'rgba(255,255,255,0.4)'; x.beginPath(); x.moveTo(X(ft), pad - 10); x.lineTo(X(ft), h - pad); x.stroke();
+  x.fillStyle = '#8b949e';
+  [0, 0.5, 1].forEach(f => { x.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center'; x.fillText(hhmm(clip.t0 + f * (nF - 1) * logDt).slice(0, 5), X(f * (nF - 1)), h - 8); });
+}
+
+function render() {
+  panels.forEach(p => drawPanel(p, ft));
+  const t = panels[0].frames[Math.floor(ft)].t;
+  $('clock').textContent = hhmm(t);
+  $('scrub').value = ft;
+  drawChart('ch1', 'delay'); drawChart('ch2', 'stopped');
+  drawForecast('ch3');
+  if (smart && smart.estTot) drawSeries('ch4', [[smart.onroad, '#c9d1d9'], [smart.estTot, '#b48cff']]);
+  if (smart) drawSeries('ch5', [[cycleSeries(), '#3fd0a0']], 140);
+}
+function tick(ts) {
+  if (playing) {
+    if (last !== null) {
+      ft += ((ts - last) / 1000) * parseFloat($('speed').value) / logDt;
+      if (ft >= nF - 1) { ft = nF - 1; playing = false; $('play').textContent = 'Replay'; }
+    }
+    last = ts; render();
+  }
+  requestAnimationFrame(tick);
+}
+DATA.clips.forEach((c, k) => { const b = document.createElement('button'); b.className = 'tab'; b.textContent = c.name; b.onclick = () => loadClip(k); $('tabs').appendChild(b); });
+$('speed').oninput = () => { $('speedv').textContent = $('speed').value + 'x'; };
+$('play').onclick = () => { if (ft >= nF - 1) ft = 0; playing = !playing; last = null; $('play').textContent = playing ? 'Pause' : 'Play'; };
+$('scrub').oninput = () => { ft = parseFloat($('scrub').value); render(); };
+$('est').onchange = render; $('qlabels').onchange = render;
+{ const m = /clip=(\d+)/.exec(location.hash), f = /f=(\d+)/.exec(location.hash);   // e.g. #clip=3&f=600
+  loadClip(m ? +m[1] : 0); if (f) { ft = Math.min(+f[1], nF - 1); playing = false; $('play').textContent = 'Play'; render(); } }
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

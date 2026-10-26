@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.DS_Store
+*.egg-info/
+
+# outputs/ is generated. Submitted: what the README cites and what the demo and the optimiser need to run.
+# Not submitted (regenerate with main.py): raw history, caches, scratch runs.
+outputs/*
+!outputs/.gitkeep
+!outputs/.cache/
+outputs/.cache/*
+!outputs/.cache/final_5.0.pkl
+!outputs/final_eval/
+!outputs/final_eval_counts/
+!outputs/accident_tuning_counts.csv
+!outputs/forecast_ladder_by_horizon.*
+!outputs/tuned_scenarios.json
+!outputs/sweep_summary.csv
+!outputs/scalability.csv
+!outputs/forecast_*_W5.csv
+!outputs/*.png
+!outputs/demo_viewer.html
