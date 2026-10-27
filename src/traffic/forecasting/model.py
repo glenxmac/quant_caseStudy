@@ -59,8 +59,9 @@ class HourProfile:
 
 
 class Structured(HourProfile):
-    """Profile x multiplier. The multiplier is observed / profile summed over the last K windows and all
-    8 entries (about 2,000 cars, so it is a stable estimate of 'how busy is today vs a typical day').
+    """Profile x multiplier x event calendar. The multiplier is observed / expected summed over the last K windows
+    and all 8 entries (about 2,000 cars, so it is a stable estimate of 'how busy is today vs a typical day'); the
+    expected count includes any announced event, so an event does not inflate the multiplier.
     Only uncensored (entry, window) pairs enter it: an entry road that was full says nothing about demand.
     If under 25% of the profile mass is uncensored (network gridlock), the multiplier falls back to 1."""
     name = "profile_x_day_multiplier"
@@ -69,7 +70,7 @@ class Structured(HourProfile):
         obs = np.zeros(len(L)); prof = np.zeros(len(L)); prof_all = np.zeros(len(L))
         for i in range(K_LAGS):
             hour_i = L.hour_dec.to_numpy() - (i + 0.5) * self.W_min / 60.0
-            p_i = self.lookup(L.weekend, L.entry, hour_i)
+            p_i = self.lookup(L.weekend, L.entry, hour_i) * (1.0 + L[f"ev_lag{i}"].to_numpy())
             ok = (L[f"cnt_lag{i}"].to_numpy() < BLOCK_T)
             obs += L[f"lag{i}"].to_numpy() * ok
             prof += p_i * ok
@@ -78,7 +79,7 @@ class Structured(HourProfile):
         gs = t.groupby(["day", "w", "h"])
         so, sp, sa = gs.o.transform("sum"), gs.p.transform("sum"), gs.a.transform("sum")
         m = np.where(sp >= 0.25 * sa, np.clip(so / np.maximum(sp, 1e-12), 0.4, 2.5), 1.0)
-        return super().predict(L) * m
+        return super().predict(L) * m * np.exp(L.ev_fh.to_numpy())
 
 
 def censored_network(L):
@@ -109,19 +110,22 @@ class CensorGuard:
 
 
 class ProfileRain(HourProfile):
-    """Patterns-only, deliberately tiny: the hour profile times one fitted rain effect,
-    y = profile x exp(a + b * rain_forecast). Two parameters, so it cannot overfit the few rainy days."""
+    """Patterns-only, deliberately tiny: the hour profile times fitted rain and event effects,
+    y = profile x exp(a + b * rain_forecast + c * event_calendar). Three parameters, so it cannot overfit the
+    few rainy or event days."""
     name = "profile_x_rain"
+
+    def _X(self, L):
+        return np.column_stack([np.ones(len(L)), L.rain_fh.to_numpy(), L.ev_fh.to_numpy()])
 
     def fit(self, L, W_min=5.0):
         super().fit(L, W_min)
         r = np.log(np.maximum(L.y.to_numpy(), 1e-9) / np.maximum(super().predict(L), 1e-9))
-        X = np.column_stack([np.ones(len(L)), L.rain_fh.to_numpy()])
-        self.coef = np.linalg.lstsq(X, r, rcond=None)[0]
+        self.coef = np.linalg.lstsq(self._X(L), r, rcond=None)[0]
         return self
 
     def predict(self, L):
-        return super().predict(L) * np.exp(self.coef[0] + self.coef[1] * L.rain_fh.to_numpy())
+        return super().predict(L) * np.exp(self._X(L) @ self.coef)
 
 
 class PoissonGLM:

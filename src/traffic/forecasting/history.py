@@ -9,6 +9,7 @@ Columns
   entry_count   cars on the entry road at the end of the bin       (censoring flag only, never a model input)
   entry_queue   of those, cars moving slower than 2 m/s            (diagnostic only)
   rain          mean rain intensity in the bin, 0..1               (known 'now'; the forecast is built from it)
+  event         the event calendar: announced extra demand at this entry in the bin (published in advance)
   true_rate     mean true demand rate in the bin, veh/s            (TARGET: never an input)
   created, backlog, accident   diagnostics only. `created` and `backlog` are not observable by a
                 controller (cars waiting outside the network); `accident` is the incident flag, kept
@@ -49,6 +50,7 @@ def simulate_day(day_seed: int, controller=DEFAULT_CONTROLLER, start_hour: float
         ts = t0 + sub
         rate = np.mean([sim.demand.rates(x) for x in ts], axis=0)
         rain = float(np.mean([rain_fn(x) for x in ts])) if rain_fn else 0.0
+        event = np.mean([sim.demand.scheduled(x) for x in ts], axis=0) if scen.events else np.zeros(n_e)
         acc = int(any(a.start_s < t1 and a.end_s > t0 for a in scen.accidents))
         rows.append(pd.DataFrame({
             "day": day_seed, "weekend": int(weekend), "t_start_s": t0, "hour": start_hour + t1 / 3600.0,
@@ -56,7 +58,7 @@ def simulate_day(day_seed: int, controller=DEFAULT_CONTROLLER, start_hour: float
             "observed": sr["observed"][k] - sr["observed"][k - 1],
             "created": sr["created"][k] - sr["created"][k - 1],
             "backlog": sr["backlog"][k], "entry_count": sr["entry_count"][k], "entry_queue": sr["entry_queue"][k],
-            "rain": rain, "accident": acc, "true_rate": rate}))
+            "rain": rain, "event": event, "accident": acc, "true_rate": rate}))
     return pd.concat(rows, ignore_index=True)
 
 

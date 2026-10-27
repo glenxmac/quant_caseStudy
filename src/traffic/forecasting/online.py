@@ -1,5 +1,5 @@
 """Live forecasting inside the simulation: turns what the controller can see (entry counts, the clock, the
-weather feed) and its own estimate of cars on each entry road (for the censoring guard) into the same feature
+weather feed, the event calendar) and its own estimate of cars on each entry road (for the censoring guard) into the same feature
 rows the models were trained on, once per window, and returns expected arrival rates for the next H windows.
 
 Modes
@@ -28,9 +28,10 @@ def load_models(path: str = DEFAULT_MODELS) -> dict:
     return _CACHE[path]
 
 
-def online_rows(w_idx, hour_dec, weekend, rates, cnts, queue, rain_now, rain_fh, W_min=5.0, H=3):
-    """Feature rows for one decision epoch. rates, cnts: (K, n_entries), newest window first; cnts are cars on
-    each entry road (here the controller's estimate), read by the censoring guard. Mirrors features.build_features
+def online_rows(w_idx, hour_dec, weekend, rates, cnts, queue, rain_now, rain_fh, ev_past, ev_fut, W_min=5.0, H=3):
+    """Feature rows for one decision epoch. rates, cnts, ev_past: (K, n_entries), newest window first; cnts are cars on
+    each entry road (here the controller's estimate), read by the censoring guard; ev_past and ev_fut (H, n_entries)
+    are the event calendar's announced extra demand in past and future windows. Mirrors features.build_features
     column for column; the occupancy columns are filled but are not model inputs."""
     n_e = rates.shape[1]
     h = np.repeat(np.arange(1, H + 1), n_e)
@@ -42,6 +43,7 @@ def online_rows(w_idx, hour_dec, weekend, rates, cnts, queue, rain_now, rain_fh,
     for i in range(K_LAGS):
         d[f"lag{i}"] = rates[i, e]
         d[f"cnt_lag{i}"] = cnts[i, e]
+        d[f"ev_lag{i}"] = ev_past[i, e]
     d["roll6"] = rates.mean(axis=0)[e]
     net = rates.sum(axis=1)
     for i in range(3):
@@ -49,6 +51,7 @@ def online_rows(w_idx, hour_dec, weekend, rates, cnts, queue, rain_now, rain_fh,
     d["net_roll6"] = full(net.mean())
     d["entry_count"], d["entry_queue"] = cnts[0, e], np.asarray(queue)[e]
     d["rain_now"], d["rain_fh"] = full(rain_now), np.asarray(rain_fh)[h - 1]
+    d["ev_now"], d["ev_fh"] = np.log1p(ev_past[0, e]), np.log1p(ev_fut[h - 1, e])
     for k in (1, 2, 3, 4):
         d[f"thr_s{k}"] = np.sin(2 * np.pi * k * d["thr_hour"] / 24)
         d[f"thr_c{k}"] = np.cos(2 * np.pi * k * d["thr_hour"] / 24)
@@ -60,8 +63,8 @@ def online_rows(w_idx, hour_dec, weekend, rates, cnts, queue, rain_now, rain_fh,
 class OnlineForecaster:
     """Runs inside the simulation: once per window it rebuilds features from what the sensors saw so far and
     predicts entry arrival rates (veh/s) for the next H windows. Uses only information available at time t
-    (clock, weather feed, entry counts, and the controller's estimated cars on each entry road, passed in as
-    `entry_occ`); `perfect` mode is an oracle for the value-of-information ladder.
+    (clock, weather feed, event calendar, entry counts, and the controller's estimated cars on each entry road,
+    passed in as `entry_occ`); `perfect` mode is an oracle for the value-of-information ladder.
     """
     def __init__(self, mode: str = "live", W_s: float = 300.0, H: int = 3, rain_sigma: float = 0.10, seed: int = 0,
                  models_path: str = DEFAULT_MODELS):
@@ -71,9 +74,10 @@ class OnlineForecaster:
 
     # ---------------------------------------------------------------- setup
     def attach(self, sim):
-        """External feeds only: the clock, the weather feed, and (oracle mode) the true demand."""
+        """External feeds only: the clock, the weather feed, the event calendar, and (oracle mode) the true demand."""
         self.sim = sim
         dm = sim.demand
+        self.calendar = dm.scheduled                    # announced events only, never the size of the real crowd
         self.start_hour = 12.0 if dm.start_hour is None else float(dm.start_hour)
         self.weekend = int(bool(dm.weekend))
         self.n_e = len(sim.net.entry_links)
@@ -97,6 +101,9 @@ class OnlineForecaster:
         if f is None:
             return 0.0
         return float(np.mean([f(x) for x in np.arange(t0 + 15.0, t1, 30.0)]))
+
+    def _event_between(self, t0, t1):
+        return np.mean([self.calendar(x) for x in np.arange(t0 + 15.0, t1, 30.0)], axis=0)
 
     # ---------------------------------------------------------------- once per window
     def update(self, t, obs, entry_occ=None):
@@ -130,8 +137,10 @@ class OnlineForecaster:
         # noisy weather forecast: the true mean rain in each future window plus noise that grows with lead time
         rf = [float(np.clip(self._rain_between(self.t_w + (h - 1) * self.W, self.t_w + h * self.W)
                             + self.rng.normal(0, self.rain_sigma * np.sqrt(h)), 0, 1)) for h in range(1, H + 1)]
+        ev_past = np.array([self._event_between(self.t_w - (i + 1) * self.W, self.t_w - i * self.W) for i in range(K_LAGS)])
+        ev_fut = np.array([self._event_between(self.t_w + (h - 1) * self.W, self.t_w + h * self.W) for h in range(1, H + 1)])
         rows = online_rows(self.w_idx, self.start_hour + self.t_w / 3600.0, self.weekend, R, C, self.queue,
-                           self.rain_mean, rf, W_min, H)
+                           self.rain_mean, rf, ev_past, ev_fut, W_min, H)
         model = self.M["poisson_glm+live+guard"] if live else self.M["profile_x_rain"]
         self.F = np.maximum(model.predict(rows), 0.0).reshape(H, self.n_e)       # veh/s per entry, per window ahead
 

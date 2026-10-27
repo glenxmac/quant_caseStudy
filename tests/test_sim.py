@@ -140,6 +140,22 @@ def test_demand_profile_and_tide():
     assert am[se].mean() > am[~se].mean() and pm[se].mean() < pm[~se].mean()
 
 
+def test_event_raises_demand_on_one_side_and_calendar_publishes_only_the_announced_size():
+    from traffic.demand import Event
+    from traffic.network import build_grid
+    net = build_grid(2, 2)
+    head = net.link_heading[net.entry_links]
+    ev = Event(heading=1, start_s=600, end_s=2400, size=1.5, announced=1.0)
+    base = DemandModel(8, entry_heading=head, start_hour=16.0)
+    dm = DemandModel(8, entry_heading=head, start_hour=16.0, events=(ev,))
+    east = head == 1
+    assert np.allclose(dm.rates(300), base.rates(300)) and np.allclose(dm.rates(3000), base.rates(3000))
+    assert np.allclose(dm.rates(1500)[east], 2.5 * base.rates(1500)[east])     # the real crowd: +150%
+    assert np.allclose(dm.rates(1500)[~east], base.rates(1500)[~east])
+    assert np.allclose(dm.scheduled(1500), np.where(east, 1.0, 0.0))            # the calendar: +100% announced
+    assert 0 < dm.scheduled(600 + 90)[east][0] < 1.0                             # ramps up over ramp_s
+
+
 def test_scenarios_use_common_random_numbers_and_are_reproducible():
     from traffic.scenarios import SCENARIOS, build_sim
     cfg = SimConfig(warmup_s=0)

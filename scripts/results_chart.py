@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 SCEN = [("am_ramp", "Typical\nmorning"), ("am_busy", "Busy\nmorning"), ("am_rain", "Storm"),
-        ("pm_ramp", "Evening"), ("am_accident", "Accident")]
+        ("pm_ramp", "Evening"), ("am_accident", "Accident"), ("pm_event", "Stadium\nevent")]
 CTRL = [("fixed_default", "Fixed 60 s (untuned)", "#a9a8a3"),
         ("fixed_tuned", "Fixed, tuned green wave", "#eb6834"),
         ("opt_live", "Optimiser (counts only)", "#2a78d6")]
@@ -18,7 +18,7 @@ if __name__ == "__main__":
     d = pd.concat(pd.read_csv(f) for f in glob.glob("outputs/final_eval_counts/*.csv") if "variants_" not in f)
     m = d.groupby(["scenario", "controller"]).mean_delay_s.mean()
     n = d[d.controller == "opt_live"].groupby("scenario").seed.nunique()
-    fig, ax = plt.subplots(figsize=(10, 5.2), facecolor=SURF)
+    fig, ax = plt.subplots(figsize=(11.5, 5.2), facecolor=SURF)
     ax.set_facecolor(SURF)
     x, w = np.arange(len(SCEN)), 0.26
     for j, (c, label, col) in enumerate(CTRL):

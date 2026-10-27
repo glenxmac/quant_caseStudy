@@ -12,7 +12,8 @@ import numpy as np
 from ..config import SimConfig
 from ..controllers import REGISTRY
 from ..controllers.optimiser import ForecastOptimiser
-from ..scenarios import SCENARIOS, build_sim
+from ..network import build_grid
+from ..scenarios import SCENARIOS, build_sim, nominal_of
 
 H = 3600
 CLIPS = [
@@ -24,9 +25,12 @@ CLIPS = [
          desc="08:15, the worst quarter-hour for the fixed plan during the storm: slower driving, lower capacity, queues everywhere."),
     dict(id="accident", name="Accident", scenario="am_accident", t0=1.65 * H, t1=1.65 * H + 900,
          desc="A lane is blocked on an internal road at 07:42 for 15 minutes, at the peak."),
+    dict(id="event", name="Stadium event", scenario="pm_event", t0=0.75 * H - 120, t1=0.75 * H + 780,
+         desc="16:13, the first quarter-hour of a stadium letting out on the west side: the eastbound entries double. "
+              "The event calendar announced it, so the forecast saw it coming."),
 ]
-SEED = 300                       # demo seed, outside the tuning (100-104) and evaluation (200-205) seeds
-CACHE_VERSION = "v3"             # v3: counts-only sensing (no cameras), controller beliefs recorded
+SEED = 300                       # demo seed, outside the tuning (100-109) and evaluation (200-209) seeds
+CACHE_VERSION = "v4"             # v4: event calendar in the forecaster, clip start hour and events recorded
 FC_BEFORE_S, FC_AFTER_S = 3600.0, 900.0     # forecast chart span around the clip
 
 
@@ -112,14 +116,19 @@ def build_clip(spec, cache_dir="outputs/viewer_cache", workers=2):
         clip.setdefault("scenario", spec["scenario"])
         return clip
     tuned = json.loads(Path("outputs/tuned_scenarios.json").read_text())
-    nom = {"am_busy": "am_ramp", "am_rain": "am_ramp", "am_accident": "am_ramp"}.get(spec["scenario"], spec["scenario"])
+    nom = nominal_of(spec["scenario"])
     jobs = [("Fixed-time (tuned)", "fixed_sync", {"cycle_s": tuned[nom]["const"]}, spec),
             ("Smart control (forecast + optimiser)", "forecast_opt", {"mode": "live"}, spec)]
     with ProcessPoolExecutor(max_workers=workers) as ex:
         panels = list(ex.map(_run_panel, jobs))
     scen = SCENARIOS[spec["scenario"]]
+    net = build_grid(2, 2)
+    ent = net.entry_links
     clip = {"id": spec["id"], "scenario": spec["scenario"], "name": spec["name"], "desc": spec["desc"], "t0": spec["t0"], "t1": spec["t1"],
+            "h0": scen.start_hour,
             "accidents": [dict(link=a.link, start=a.start_s, end=a.end_s, pos=a.pos_frac) for a in scen.accidents],
+            "events": [dict(links=ent[net.link_heading[ent] == e.heading].tolist(), start=e.start_s, end=e.end_s)
+                       for e in scen.events],
             "panels": panels}
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(clip, separators=(",", ":")))

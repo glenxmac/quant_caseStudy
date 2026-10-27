@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from .demand import DemandModel
+from .demand import DemandModel, Event
 from .network import build_grid
 from .sim import Simulation
 
@@ -33,6 +33,7 @@ class Scenario:
     noise_sigma: float = 0.06
     rain: tuple = ()                 # ((start_s, end_s, peak_intensity), ...)
     accidents: tuple = ()
+    events: tuple = ()               # scheduled events (demand.Event), published in advance by the event calendar
     time_shift_h: float = 0.0        # day-specific shift of the whole daily pattern (hours)
     scale: float = 0.85              # nominal day peaks at ~0.85 of the saturation knee: busy but manageable
     description: str = ""
@@ -53,7 +54,7 @@ class Scenario:
         return DemandModel(len(net.entry_links), scale=self.scale, entry_heading=net.link_heading[net.entry_links],
                            start_hour=self.start_hour, weekend=self.weekend, day_effect=self.day_effect,
                            noise_sigma=self.noise_sigma, rain=self.rain_fn(), seed=seed, horizon_s=self.duration_s,
-                           time_shift_h=self.time_shift_h)
+                           time_shift_h=self.time_shift_h, events=self.events)
 
 
 H = 3600
@@ -65,9 +66,12 @@ SCENARIOS = {s.name: s for s in [
     Scenario("am_accident", 6.0, 3 * H, accidents=(Accident(link=5, start_s=1.7 * H, end_s=1.7 * H + 900),),
              description="Lane blocked on an internal road at 07:42 for 15 minutes, at peak"),
     Scenario("pm_ramp", 15.5, 3 * H, description="Typical weekday evening: 15:30-18:30, reverse tide"),
+    Scenario("pm_event", 15.5, 3 * H, events=(Event(heading=1, start_s=0.75 * H, end_s=1.5 * H, size=1.0, announced=1.0),),
+             description="Typical evening plus a stadium letting out at 16:15 on the west side: the two eastbound "
+                         "entries double for 45 minutes, announced in advance by the event calendar"),
 ]}
 
-NOMINAL = {"am_busy": "am_ramp", "am_rain": "am_ramp", "am_accident": "am_ramp"}
+NOMINAL = {"am_busy": "am_ramp", "am_rain": "am_ramp", "am_accident": "am_ramp", "pm_event": "pm_ramp"}
 
 
 def nominal_of(name: str) -> str:

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from traffic.config import SimConfig
-from traffic.controllers.optimiser import link_flow_matrix, solve_splits, webster_cycle
+from traffic.controllers.optimiser import link_flow_matrix, smooth_cycle, solve_splits, webster_cycle
 from traffic.network import build_grid
 
 CFG = SimConfig()
@@ -36,6 +36,15 @@ def test_heavy_ns_gets_more_green_and_bounds_hold():
     C = 80.0
     assert (x * C - p["lost_s"] >= p["min_green_s"] - 1e-3).all()
     assert ((1 - x) * C - p["lost_s"] >= p["min_green_s"] - 1e-3).all()
+
+
+def test_smoothed_cycle_reaches_its_target_and_both_caps():
+    """Rounding the smoothed value itself used to stall the cycle at 115 s and 45 s (never 120 / 40)."""
+    for start, target in ((60.0, 120.0), (115.0, 120.0), (60.0, 40.0), (45.0, 40.0), (100.0, 110.0)):
+        s, c = start, start
+        for _ in range(30):
+            s, c = smooth_cycle(s, target, 40.0, 120.0)
+        assert c == target
 
 
 def test_webster_cycle_grows_with_demand_and_is_clamped():

@@ -12,7 +12,6 @@ outputs/*
 !outputs/.cache/
 outputs/.cache/*
 !outputs/.cache/final_5.0.pkl
-!outputs/final_eval/
 !outputs/final_eval_counts/
 !outputs/accident_tuning_counts.csv
 !outputs/forecast_ladder_by_horizon.*

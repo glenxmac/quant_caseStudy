@@ -68,7 +68,7 @@
   <div class="card" id="result"></div>
 </div>
 <div class="sect"><b>Inside the smart controller.</b> It sees no cameras: only a counter on each of the 8 entry roads
-  (<span class="chip" style="background:var(--sensor)"></span>), the clock, the weather feed, its own signals and the incident feed.
+  (<span class="chip" style="background:var(--sensor)"></span>), the clock, the weather feed, the event calendar, its own signals and the incident feed.
   It estimates the cars on every road with a queue model, forecasts arrivals for the next 15 minutes,
   and re-solves the cycle and green splits every 60 s (each junction box shows its current green split, % of the cycle).</div>
 <div class="row">
@@ -124,7 +124,7 @@ const BG = buildBackground();
 let clip, smart = null, panels = [], nF = 0, ft = 0, playing = true, last = null;
 const host = document.getElementById('panels');
 const $ = id => document.getElementById(id);
-const hhmm = t => { const s = Math.floor(DATA.h0 * 3600 + t); return String(Math.floor(s / 3600) % 24).padStart(2, '0') + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+const hhmm = t => { const s = Math.floor((clip && clip.h0 != null ? clip.h0 : DATA.h0) * 3600 + t); return String(Math.floor(s / 3600) % 24).padStart(2, '0') + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 
 function loadClip(k) {
   clip = DATA.clips[k]; ft = 0; playing = true; last = null; $('play').textContent = 'Pause';
@@ -200,6 +200,15 @@ function drawPanel(p, ft) {
       x.fillStyle = '#fff'; x.font = '700 13px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('!', pt[0], pt[1] + 1);
       x.font = '600 11px system-ui'; x.fillStyle = '#ff9aa0'; x.fillText('road blocked', pt[0], pt[1] - 22);
     }
+  });
+  // scheduled event: the crowd enters on the roads nearest the venue
+  (clip.events || []).forEach(ev => {
+    if (A.t >= ev.start && A.t < ev.end) ev.links.forEach(l => {
+      const g = G[l], pt = pointOn(g, g.len - 120);       // 120 m before the stop line: on screen
+      x.fillStyle = '#ff7ab6'; x.beginPath(); x.arc(pt[0], pt[1], 7, 0, 6.283); x.fill();
+      x.font = '600 11px system-ui'; x.fillStyle = '#ffb3d4'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText('event crowd', pt[0], pt[1] - 17);
+    });
   });
   if (showQ || showE) {
     x.font = '600 11px system-ui'; x.textAlign = 'center'; x.textBaseline = 'middle';
@@ -289,6 +298,10 @@ function drawForecast(id) {
   const mx = niceMax(Math.max(...win.map(v => Math.max(v.f, v.n || 0, v.tr || 0))));
   const X = t => pad + 20 + (w - pad - 28) * (t - t0) / (t1 - t0), Y = v => h - pad - (h - 2 * pad) * v / mx;
   x.fillStyle = 'rgba(255,255,255,0.05)'; x.fillRect(X(clip.t0), pad - 10, X(clip.t1) - X(clip.t0), h - 2 * pad + 10);
+  (clip.events || []).forEach(ev => {             // the event as published by the calendar
+    const a = X(Math.max(t0, ev.start)), b = X(Math.min(t1, ev.end));
+    if (b > a) { x.fillStyle = 'rgba(255,122,182,0.12)'; x.fillRect(a, pad - 10, b - a, h - 2 * pad + 10); }
+  });
   axes(x, w, h, pad, mx);
   win.forEach(v => { if (v.n === null) return; const a = X(v.s) + 2, b = X(v.s + Wd) - 2; x.fillStyle = '#4a5260'; x.fillRect(a, Y(v.n), b - a, h - pad - Y(v.n)); });
   const step = (key, col, dash, lw) => {
@@ -340,6 +353,10 @@ function drawChart(id, key) {
   (clip.accidents || []).forEach(ac => {
     const a0 = Math.max(0, (ac.start - clip.t0) / logDt), a1 = Math.min(nF - 1, (ac.end - clip.t0) / logDt);
     if (a1 > a0) { x.fillStyle = 'rgba(229,72,77,0.15)'; x.fillRect(X(a0), pad - 10, X(a1) - X(a0), h - 2 * pad + 10); }
+  });
+  (clip.events || []).forEach(ev => {
+    const a0 = Math.max(0, (ev.start - clip.t0) / logDt), a1 = Math.min(nF - 1, (ev.end - clip.t0) / logDt);
+    if (a1 > a0) { x.fillStyle = 'rgba(255,122,182,0.12)'; x.fillRect(X(a0), pad - 10, X(a1) - X(a0), h - 2 * pad + 10); }
   });
   panels.forEach((p, pi) => {
     x.strokeStyle = p.plan ? '#3fd0a0' : '#f0a030'; x.lineWidth = 2; x.beginPath();

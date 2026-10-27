@@ -166,8 +166,9 @@ def make_plots(W=5.0, stage="charts"):
 
 def _pick_days(hist):
     d = hist.groupby("day").agg(weekend=("weekend", "max"), rain=("rain", lambda x: (x > 0.1).mean()),
-                                acc=("accident", lambda x: x.sum() / 8), full=("entry_count", "max"), backlog=("backlog", "max"))
-    calm = d[(d.weekend == 0) & (d.acc == 0) & (d.rain == 0) & (d.full < BLOCK_T)]
+                                acc=("accident", lambda x: x.sum() / 8), full=("entry_count", "max"), backlog=("backlog", "max"),
+                                ev=("event", "max"))
+    calm = d[(d.weekend == 0) & (d.acc == 0) & (d.rain == 0) & (d.full < BLOCK_T) & (d.ev == 0)]
     typical = int((calm if len(calm) else d[d.weekend == 0]).backlog.idxmin())
     acc = d[(d.weekend == 0) & (d.acc > 0) & (d.full < BLOCK_T)]
     accident = int((acc if len(acc) else d[d.acc > 0]).sort_values(["rain", "acc"], ascending=[True, False]).index[0])
@@ -210,9 +211,10 @@ def plot_two_days(models, hist, out, W=5.0):
 
 
 def regime_labels(L):
-    r = np.where(L.weekend > 0, "Weekend",
+    r = np.where(np.maximum(L.ev_now, L.ev_fh) > 0, "Event",
+        np.where(L.weekend > 0, "Weekend",
         np.where(L.accident > 0, "Weekday + accident",
-        np.where(np.maximum(L.rain_now, L.rain_target) > 0.1, "Weekday + rain", "Weekday, dry")))
+        np.where(np.maximum(L.rain_now, L.rain_target) > 0.1, "Weekday + rain", "Weekday, dry"))))
     return pd.Series(r, index=L.index)
 
 
@@ -226,7 +228,7 @@ def plot_regimes(models, sets, out, W=5.0):
         parts.append(build_features(to_windows(hist, W), W, 3))
     L = pd.concat(parts, ignore_index=True)
     reg = regime_labels(L)
-    order = ["Weekday, dry", "Weekday + rain", "Weekday + accident", "Weekend"]
+    order = ["Weekday, dry", "Weekday + rain", "Weekday + accident", "Event", "Weekend"]
     series = [("hour_profile", ORANGE, "Hour-of-day profile (patterns only)"), ("profile_x_rain", VIOLET, "Profile × rain (patterns only)"),
               ("poisson_glm+live+guard", BLUE, "GLM + live counts + guard"), ("gbm_poisson+live+guard", AQUA, "Boosting + live counts + guard")]
     y = L.y.to_numpy()

@@ -20,7 +20,8 @@ def split_days(days, frac=(40 / 60, 10 / 60, 10 / 60)):
 
 
 def regime(L):
-    r = np.where(L.accident > 0, "accident", np.where(np.maximum(L.rain_now, L.rain_target) > 0.1, "rain", "normal"))
+    r = np.where(L.accident > 0, "accident", np.where(np.maximum(L.rain_now, L.rain_target) > 0.1, "rain",
+                 np.where(np.maximum(L.ev_now, L.ev_fh) > 0, "event", "normal")))
     return pd.Series(r, index=L.index)
 
 
@@ -101,7 +102,7 @@ def ablation(hist: pd.DataFrame, others, W_min: float = 5.0, H: int = 3):
 
 LADDER = [("persistence", "Raw count carried forward (persistence)"),
           ("hour_profile", "Hour-of-day profile (entry x weekday/weekend x 15 min)"),
-          ("profile_x_rain", "+ weather (profile x rain)"),
+          ("profile_x_rain", "+ weather and event calendar (profile x rain x event)"),
           ("poisson_glm+live+guard", "+ live entrance counts: Poisson GLM + guard (main)"),
           ("gbm_poisson+live+guard", "GBM + live counts + guard (check)"),
           ("oracle_true_rate_now", "Oracle: true rate now carried forward (unreachable)")]

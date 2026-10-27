@@ -40,6 +40,18 @@ def test_features_use_only_the_past_and_targets_are_future_true_rate():
     assert all(np.isclose(r[f], r2[f]) for f in ("lag0", "lag5", "roll6", "net_lag0", "net_roll6", "cnt_lag0"))
 
 
+def test_event_features_come_from_the_calendar_for_the_forecast_window():
+    """The event calendar is published in advance: ev_fh is the announced extra demand in the window being
+    forecast; the true crowd (only in the target) never enters."""
+    win = to_windows(_hist())
+    w0 = int(win.w.median())
+    win.loc[(win.day == 1) & (win.entry == 0) & (win.w == w0 + 2), "event"] = 0.8
+    L = build_features(win)
+    r = L[(L.day == 1) & (L.entry == 0) & (L.w == w0)].set_index("h")
+    assert np.isclose(r.loc[2, "ev_fh"], np.log1p(0.8)) and r.loc[1, "ev_fh"] == 0 and r.loc[3, "ev_fh"] == 0
+    assert (L[L.entry != 0].ev_fh == 0).all()
+
+
 def test_split_is_by_whole_days_in_time_order():
     tr, va, te = split_days(np.repeat(np.arange(60), 5))
     assert (len(tr), len(va), len(te)) == (40, 10, 10)

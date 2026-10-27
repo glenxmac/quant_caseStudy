@@ -65,6 +65,14 @@ def webster_cycle(net, T, lam_entry, sat, l_eff, c_min, c_max):
     return float(np.clip((1.5 * l_eff + 5.0) / (1.0 - Y), c_min, c_max)), Y
 
 
+def smooth_cycle(c_smooth, c_target, c_min, c_max, w=0.4, step=5.0):
+    """Move the cycle a share w of the way to Webster's target each decision; returns (smoothed cycle, executed cycle
+    rounded to `step`). The smoothed value is kept unrounded: rounding it every time would stall the cycle one step
+    short of its target, and of both caps."""
+    c_smooth = (1.0 - w) * c_smooth + w * c_target
+    return c_smooth, float(np.clip(round(c_smooth / step) * step, c_min, c_max))
+
+
 def solve_splits(q0, lam, x_prev, C, net, T, storage, p, blocked=None):
     """Solve the convex program. q0: (n_links,) cars on each link now; lam: (n_entries, N) forecast veh/s;
     x_prev: (n_int,) current NS share; blocked: (n_links,) bool, links that cannot discharge.
@@ -220,6 +228,7 @@ class ForecastOptimiser(Controller):
         self.storage[net.entry_links] = float(int(cfg.entry_link_length_m // veh.slot_m))
         self.est = QueueEstimator(net, cfg, self.T, self.storage, self.startup_s)
         self.C, self.x = 60.0, np.full(net.n_int, 0.5)
+        self.C_smooth = self.C
         self.next_decision = 0.0
         self.n_solves, self.n_fail, self.plans = 0, 0, []
         self.blocked = np.zeros(net.n_links, dtype=bool)
@@ -247,7 +256,7 @@ class ForecastOptimiser(Controller):
         lam = self.fc.lam_steps(t, self.decision_s, N)
         p = self._params()
         C_t, _ = webster_cycle(self.net, self.T, lam.mean(axis=1), p["sat"], self.l_eff, self.c_min, self.c_max)
-        self.C = float(np.clip(round((0.6 * self.C + 0.4 * C_t) / 5.0) * 5.0, self.c_min, self.c_max))
+        self.C_smooth, self.C = smooth_cycle(self.C_smooth, C_t, self.c_min, self.c_max)
         x, _, status = solve_splits(self.est.n, lam, self.x, self.C, self.net, self.T, self.cap, p, self.blocked)
         self.n_solves += 1
         if x is None:

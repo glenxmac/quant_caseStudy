@@ -1,6 +1,7 @@
 """Feature engineering. Everything here uses only information available at the decision epoch
 (the end of a window). Targets and oracle columns are built separately and never enter FEATURES.
-Counts-only sensing: the live inputs are the 8 entrance counters, the clock and the weather feed.
+Counts-only sensing: the live inputs are the 8 entrance counters, the clock, the weather feed and the event calendar
+(published in advance, so its value for the window being forecast is known at decision time).
 `entry_count` (cars on the entry road) is kept only to flag censoring (cnt_lag*, the guard); offline it
 comes from the simulator and stands in for a survey flag, online from the controller's queue model.
 
@@ -21,7 +22,7 @@ def to_windows(hist: pd.DataFrame, W_min: float = 5.0) -> pd.DataFrame:
     h["w"] = (h.t_start_s // (nb * BIN_S)).astype(int)
     g = h.groupby(["day", "entry", "w"], sort=True)
     out = g.agg(n=("observed", "size"), observed=("observed", "sum"), entry_count=("entry_count", "last"),
-                rain=("rain", "mean"), accident=("accident", "max"),
+                rain=("rain", "mean"), event=("event", "mean"), accident=("accident", "max"),
                 true_rate=("true_rate", "mean"), weekend=("weekend", "first"), hour=("hour", "last")).reset_index()
     out = out[out.n == nb].drop(columns="n").reset_index(drop=True)
     out["obs_rate"] = out.observed / (W_min * 60)            # veh/s, noisy and censored
@@ -43,6 +44,9 @@ def build_features(win: pd.DataFrame, W_min: float = 5.0, H: int = 3, rain_sigma
     df["roll6"] = df[[f"lag{i}" for i in range(K_LAGS)]].mean(axis=1)
     df["net_roll6"] = g.net_rate.transform(lambda s: s.rolling(K_LAGS).mean())
     df["rain_now"] = df.rain
+    df["ev_now"] = np.log1p(df.event)                       # event calendar: log(1 + announced extra demand)
+    for i in range(K_LAGS):
+        df[f"ev_lag{i}"] = g.event.shift(i)                 # used by the profile x multiplier fallback, not a model input
     df["hour_dec"] = df.hour
     for e in range(8):
         df[f"e{e}"] = (df.entry == e).astype(float)
@@ -58,6 +62,7 @@ def build_features(win: pd.DataFrame, W_min: float = 5.0, H: int = 3, rain_sigma
         p["rain_target"] = gh.rain.shift(-h)                 # truth, used only to label the regime
         # noisy forecast of the rain intensity h windows ahead: truth + noise that grows with lead time
         p["rain_fh"] = (p.rain_target + rng.normal(0, rain_sigma * np.sqrt(h), len(p))).clip(0, 1)
+        p["ev_fh"] = np.log1p(gh.event.shift(-h))            # the calendar for the window being forecast (known ahead)
         p["thr_hour"] = p.hour_dec + h * W_min / 60.0        # clock hour of the window being forecast
         parts.append(p)
     L = pd.concat(parts, ignore_index=True)
@@ -68,7 +73,8 @@ def build_features(win: pd.DataFrame, W_min: float = 5.0, H: int = 3, rain_sigma
     return L
 
 
-CALENDAR = (["h", "weekend"] + [f"e{e}" for e in range(8)] + [f"thr_{t}{k}" for k in (1, 2, 3, 4) for t in "sc"])
+CALENDAR = (["h", "weekend"] + [f"e{e}" for e in range(8)] + [f"thr_{t}{k}" for k in (1, 2, 3, 4) for t in "sc"]
+            + ["ev_now", "ev_fh"])
 WEATHER = ["rain_now", "rain_fh"]
 LIVE_COUNTS = [f"lag{i}" for i in range(K_LAGS)] + ["roll6", "net_lag0", "net_lag1", "net_lag2", "net_roll6"]
 FEATURE_SETS = {"calendar": CALENDAR, "calendar+weather": CALENDAR + WEATHER, "+live counts": CALENDAR + WEATHER + LIVE_COUNTS}
