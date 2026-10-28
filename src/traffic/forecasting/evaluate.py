@@ -140,15 +140,3 @@ def paired_by_day(B, preds, ref="hour_profile", other=None):
             h = stats.t.ppf(0.975, len(d) - 1) * d.std(ddof=1) / np.sqrt(len(d))
             rows.append({"model": n, "vs": r, "mse_reduction_%": d.mean(), "ci95_+-": h, "days": len(d)})
     return pd.DataFrame(rows)
-
-
-def robustness(models, hist_other: pd.DataFrame, W_min: float = 5.0, H: int = 3):
-    """Score already-fitted models on days simulated under a DIFFERENT controller (covariate shift:
-    entry-road occupancy and censoring depend on the signal plan that generated the data)."""
-    L = build_features(to_windows(hist_other, W_min), W_min, H)
-    ref = next(m for m in models if m.name == "hour_profile").predict(L)
-    out = []
-    for m in models:
-        out.append({"model": m.name, **metrics(L.y.to_numpy(), m.predict(L), ref)})
-    out.append({"model": "oracle_true_rate_now", **metrics(L.y.to_numpy(), L.true_now.to_numpy(), ref)})
-    return pd.DataFrame(out), L

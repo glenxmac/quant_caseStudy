@@ -1,0 +1,15 @@
+scenario,cycle_s,mean_delay_s
+am_ramp,30.0,393.09
+am_ramp,45.0,206.26
+am_ramp,60.0,124.35
+am_ramp,90.0,77.32
+am_ramp,120.0,70.03
+am_ramp,150.0,73.08
+am_ramp,180.0,79.12
+pm_ramp,30.0,749.09
+pm_ramp,45.0,465.77
+pm_ramp,60.0,325.13
+pm_ramp,90.0,199.18
+pm_ramp,120.0,151.86
+pm_ramp,150.0,132.7
+pm_ramp,180.0,129.9

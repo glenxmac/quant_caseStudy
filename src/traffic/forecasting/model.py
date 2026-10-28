@@ -3,7 +3,7 @@ predicted true arrival rate (veh/s) for one entry, h windows ahead. `y` is the T
 are scored on what the optimiser needs, not on the noisy counts.
 
   (The main forecaster is PoissonGLM on live counts wrapped in CensorGuard, 'poisson_glm+live+guard' in online.py.
-   Patterns-only models (calendar + weather) are its fallback and the 'patterns' rung; see README 'original mistake'.)
+   Patterns-only models (calendar + weather) are its fallback and the 'patterns' rung; see docs/DETAILS.md 'Original mistake and correction'.)
   Persistence       last window's observed rate                       (no learning)
   HourProfile       mean true rate at that clock time, by entry and weekday/weekend   (no day awareness)
   Structured        HourProfile x a day multiplier from the last 30 min of network-wide counts

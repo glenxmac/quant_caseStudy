@@ -1,6 +1,6 @@
 # AGENTS.md: handover for any assistant or reviewer picking this project up
 
-Read `README.md` first (assumptions, forecaster, approach, results, limitations), then `docs/README.md` (the original brief and rubric).
+Read `README.md` first (the 2-page summary), then `docs/DETAILS.md` (full write-up: assumptions, forecaster, approach, results, limitations), then `docs/README.md` (the original brief and rubric).
 
 ## 1. What this is
 "Senior Quant" case study, **Problem 1: smart traffic-light optimisation**, for an internal Quant Analyst application. Real deadline: Thursday morning (the brief says Tuesday 09:00). Format: 15 min live demo + 15 min Q&A.
@@ -9,7 +9,7 @@ Rubric (25 each): ML modelling; mathematical optimisation; software engineering 
 **The author wants it simple.** One story: count -> forecast -> model the queues -> optimise -> measure wait time. Do not add sensors, baselines or mechanisms without being asked.
 
 ## 2. Sensing assumption (counts only, since 2026-10-26)
-The controller sees: a car counter on each entry road (`obs["entry_cum"]`), the clock, the weather feed, the event calendar (announced events only, `DemandModel.scheduled`, read by the forecaster), its own signal state, and the incident feed (`obs["incidents"]`). It must NOT read `count`, `queue`, `down_queue`, `stop_cross`, `spill`, `entry_count`, `entry_queue` (a test passes it only the allowed keys). Queues are estimated by `QueueEstimator` (same store-and-forward model as the QP). The earlier camera-based version's results (including max-pressure) are summarised in the README; its result files were removed, and a backup of that code was taken outside the repo.
+The controller sees: a car counter on each entry road (`obs["entry_cum"]`), the clock, the weather feed, the event calendar (announced events only, `DemandModel.scheduled`, read by the forecaster), its own signal state, and the incident feed (`obs["incidents"]`). It must NOT read `count`, `queue`, `down_queue`, `stop_cross`, `spill`, `entry_count`, `entry_queue` (a test passes it only the allowed keys). Queues are estimated by `QueueEstimator` (same store-and-forward model as the QP). The earlier camera-based version's results (including max-pressure) are summarised in `docs/DETAILS.md`; its result files were removed, and a backup of that code was taken outside the repo.
 
 ## 3. State: all main pieces are built
 | Piece | Where | Status |
@@ -20,11 +20,11 @@ The controller sees: a car counter on each entry road (`obs["entry_cum"]`), the 
 | Queue estimator + optimiser (rolling-horizon convex QP, Webster cycle, model-based gap-out, incident fallback) | `controllers/optimiser.py` | done |
 | Demo viewer (normal / rush / storm / accident / stadium event; controller's estimate vs truth, forecast vs counts) | `viz/clips.py`, `viz/render.py`, `viz/viewer_template.html` | done |
 | Scalability timing | `scripts/scalability.py`, `outputs/scalability.csv` | done (up to 10x10) |
-| README writeup | `README.md` | updated for counts only; the AI-use section needs the author's own words |
-| Figures | `outputs/*.png` (list in README "Figures") | done; headline chart from `scripts/results_chart.py` |
+| Writeup | `README.md` (2 pages), `docs/DETAILS.md` (full) | done; AI-use section in the author's words |
+| Figures | `outputs/*.png` (list in `docs/DETAILS.md` "Figures") | done; headline chart from `scripts/results_chart.py` |
 | Tests | `tests/` (run `pytest`) | 33 pass |
 
-## 4. Headline findings (see README Results)
+## 4. Headline findings (see `docs/DETAILS.md` Results)
 - Optimiser vs tuned fixed green wave (held-out): -32% typical, -14% evening, -7% accident (n.s.), -5% stadium event (n.s.; wins 9 of 10 seeds, one seed 217 vs 149 s) (10 seeds each), -22% busy, -15% storm (3 seeds). Vs the untuned 60 s plan: 43-64% better everywhere. All numbers are after the cycle-smoothing fix (`smooth_cycle`; the old rounding stalled the cycle at 45-115 s).
 - **The learned forecast adds almost nothing to control**: persistence, learned and perfect forecasts give about the same delay, even in the stadium event. The forecast is a good nowcast (7.1% vs profile 10.4%; oracle wins only at +5 min) and predicts event surges from the calendar (13% vs 40% error; GLM beats boosting 13% vs 21% there), but the controller re-plans every minute from counts that already carry today's level, and in a surge its limit is the queue estimate. Say so; do not oversell the ML.
 - Stadium event: the forecast sees the surge coming, but the queue estimate collapses when roads fill (assumes full entry roads keep draining; counters go quiet), so on bad days the optimiser starves the eastbound entries (seed 207). The event costs it 46 s per car against 39 for the tuned 180 s plan; it wins the day only because it is ahead before the surge. Cycle cap 180 s was checked on tuning seeds and not adopted (worse on both the normal evening and the event). The event was added after everything else was settled; no optimiser setting was changed for it.
@@ -32,7 +32,7 @@ The controller sees: a car counter on each entry road (`obs["entry_cum"]`), the 
 - Incident fallback: from report until 60 min after clearance the signals run the tuned 120 s green wave. Without the incident feed the counts-only controller gridlocks 2 of 10 accident seeds (457 s vs 225 s mean). Chosen on accident tuning seeds 100-109.
 - Tail (p95) delay is better than tuned fixed in the typical, busy, storm and accident runs, level in the evening and event.
 - Queue estimate: good on normal days (entry ~0.4 cars, internal ~1.2 cars mean abs error), drifts high in the storm, wrong after an accident and in an event surge. No sensor corrects it.
-- No more model or solver variants are needed (README "Why not more models or solvers"): GLM level with boosting (better on events), a perfect forecast does not lower delay, the QP is globally optimal and the sweep is flat. Remaining error is the unmeasured queue state.
+- No more model or solver variants are needed (`docs/DETAILS.md` "Why not more models or solvers"): GLM level with boosting (better on events), a perfect forecast does not lower delay, the QP is globally optimal and the sweep is flat. Remaining error is the unmeasured queue state.
 
 ## 5. Conventions (keep these)
 - Common random numbers: same scenario + seed = identical demand for every controller. Seeds: tuning 100-109, held-out evaluation 200+, demo 300, forecaster history 0-59 plus fresh 5000+/6000+/1000+.
@@ -66,6 +66,3 @@ rm outputs/viewer_cache/*_v4.json; python main.py viz-clips             # output
 PYTHONPATH=src python scripts/results_chart.py; python main.py forecast-plots   # figures
 PYTHONPATH=src python scripts/scalability.py 10 10
 ```
-
-## 8. What is not done (candidate future work, all listed in the README limitations)
-A stop-line counter per road to correct the queue estimate; an estimator that flags full entry roads from the calendar and a silent counter (or a calendar-triggered fallback) so the event forecast can pay off; robust optimisation over forecast and estimate uncertainty; more evaluation seeds (3 for busy/storm); coordination offsets chosen by the optimiser; RL. The forecaster is fitted to the 2x2 grid only.

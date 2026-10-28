@@ -120,8 +120,8 @@ def main() -> None:
         forecast_cmd(args)
     elif args.command == "forecast-plots":
         from traffic.viz.forecastplots import make_plots
-        day, _ = make_plots(args.window_min, args.stage)
-        print("wrote outputs/forecast_day.png, outputs/forecast_skill.png; day", day)
+        day = make_plots(args.window_min, args.stage)
+        print("wrote outputs/forecast_day.png, forecast_two_days.png, forecast_regimes.png; day", day)
     elif args.command == "tune-scen":
         from traffic.config import SimConfig
         from traffic.experiments.scen import load_or_tune

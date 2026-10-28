@@ -1,6 +1,6 @@
 """All tunable parameters in one place so experiments are reproducible.
 
-Every value here is an ASSUMPTION; see README 'Assumptions'. Nothing is hidden in the sim code.
+Every value here is an ASSUMPTION; see docs/DETAILS.md 'Assumptions'. Nothing is hidden in the sim code.
 """
 from dataclasses import dataclass
 

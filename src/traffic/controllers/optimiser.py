@@ -5,7 +5,7 @@ feed, the controller's own signal state, and the city's incident feed ("link X b
 it clears). It knows the road layout, link lengths, average turning shares and nominal saturation flow. It reads no
 cameras: queues inside the network are not measured but estimated.
 
-Four layers (see README):
+Four layers (see docs/DETAILS.md 'Approach'):
   estimate  every second: a store-and-forward model of every link (QueueEstimator) driven by the entry counts and
             the controller's own signals gives the estimated cars on each link;
   forecast  once per 5-min window: expected arrival rate at each entry for the next 15 min (forecasting/online.py);

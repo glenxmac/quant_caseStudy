@@ -21,3 +21,6 @@ outputs/.cache/*
 !outputs/forecast_*_W5.csv
 !outputs/*.png
 !outputs/demo_viewer.html
+
+# Office lock files
+~$*
